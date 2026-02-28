@@ -1,14 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized() ; 
+
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.black,  
+      statusBarIconBrightness: Brightness.light,  
+      statusBarBrightness: Brightness.dark,  
+      systemNavigationBarColor: Colors.black,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ),
+  );
+
+  
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  // This widget is the root of your application.
+ 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -41,54 +56,86 @@ class _CRMWebViewState extends State<CRMWebView> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..enableZoom(true)
+      ..addJavaScriptChannel(
+        "FlutterChannel",
+        onMessageReceived: (JavaScriptMessage message) {
+          _showMessageFromWeb(message.message);
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onNavigationRequest: (request) {
-            // Prevent leaving CRM domain (optional)
-            if (!request.url.contains("crm.bihtech.com")) {
-              return NavigationDecision.prevent;
-            }
-            return NavigationDecision.navigate;
-          },
-          onPageStarted: (url) {
+          onPageStarted: (_) {
             setState(() => _isLoading = true);
           },
-          onPageFinished: (url) {
+          onPageFinished: (_) {
             setState(() => _isLoading = false);
           },
         ),
       )
-      ..loadRequest(
-        Uri.parse("https://crm.bihtech.com"),
-      );
+      ..loadRequest(Uri.parse("https://crm.bihtech.com"));
   }
 
-  Future<bool> _handleBack() async {
+  // ===== 1️⃣ EXIT CONFIRM DIALOG =====
+  Future<bool> _onWillPop() async {
     if (await _controller.canGoBack()) {
       _controller.goBack();
       return false;
     }
-    return true;
+
+    final shouldExit = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Exit App"),
+        content: const Text("Are you sure you want to exit?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("No"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Yes"),
+          ),
+        ],
+      ),
+    );
+
+    return shouldExit ?? false;
+  }
+
+  // ===== 2️⃣ MESSAGE FROM WEBSITE =====
+  void _showMessageFromWeb(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.blue,
+      ),
+    );
+  }
+ 
+  Future<void> _refreshPage() async {
+    await _controller.reload();
   }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: _handleBack,
-      child: Scaffold(
-       
-        body: Stack(
-          children: [
-            WebViewWidget(controller: _controller),
-            if (_isLoading)
-              const Center(
-                child: CircularProgressIndicator(),
+      onWillPop: _onWillPop,
+      child: SafeArea(
+        child: Scaffold(
+           body: Stack(
+            children: [
+              RefreshIndicator(
+                onRefresh: _refreshPage,
+                child: WebViewWidget(controller: _controller),
               ),
-          ],
+              if (_isLoading)
+                const Center(child: CircularProgressIndicator()),
+            ],
+          ),
         ),
       ),
     );
   }
 }
-
  
